@@ -1,0 +1,430 @@
+
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+      <title>three.js webgl - level-of-details</title>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+      <style>
+          body {
+              background:#000;
+              color:#fff;
+              padding:0;
+              margin:0;
+              font-weight: bold;
+              overflow:hidden;
+          }
+
+          #info {
+              position: absolute;
+              top: 0px; width: 100%;
+              color: #ffffff;
+              padding: 5px;
+              font-family: Monospace;
+              font-size: 13px;
+              text-align: center;
+              z-index:100;
+          }
+
+          a { color:red }
+
+      </style>
+	</head>
+
+    <body>
+
+      <div id="info">
+        <a href="http://threejs.org" target="_blank">three.js</a>
+        Audio Visual Example 
+      </div>
+
+
+      <script src="lib/three.min.js"></script>
+
+      <!--Giving the camera Orbit Controls -->
+      <script src="lib/OrbitControls.js"></script>
+
+      <!-- Script that makes sure browser has WebGL -->
+      <script src="lib/Detector.js"></script>
+
+      <!--Script to be able to see rendering Stats -->
+      <script src="lib/stats.min.js"></script>
+
+      <script>
+
+        //Make sure we can tell if user doesn't have webgl
+        //TODO: create something like this for web audio api!
+        if ( ! Detector.webgl ) Detector.addGetWebGLMessage();
+
+        //Scene Global Vars
+        var SCENESIZE = 100; 
+
+        var container, stats, clock;
+
+        var camera, controls, scene, renderer;
+
+
+        //Audio Global Vars
+        var musicContext, masterGain
+
+        //Our Audio Visual Object
+        var AV;
+
+
+
+        function letThereBeLight() {
+
+          /*
+
+            SCENE SET UP
+
+          */
+
+          //Get a clock to keep track of stats
+          clock = new THREE.Clock();
+
+
+          //Makes a perspective camera
+          camera = new THREE.PerspectiveCamera( 
+          
+            45,                                       //FOV Angle
+            window.innerWidth / window.innerHeight,   //Aspect ratio
+            SCENESIZE/1000,                           //near
+            SCENESIZE                                 //far
+            
+          );
+
+          
+          //Moves the camera back, so we can be looking at Zero
+          camera.position.z = SCENESIZE/10;
+
+          //gives the camera some better controls
+          controls = new THREE.OrbitControls( camera );
+
+          //Creates a scene, and adds fog based on the SCENESIZE
+          scene = new THREE.Scene();
+          scene.fog = new THREE.Fog( 0x000000, 1, .75*SCENESIZE);
+
+          
+          /*
+
+            AUDIO SETUP
+
+          */
+
+          
+          if (typeof webkitAudioContext == 'undefined'){   
+            
+            alert('Your Browser does not support the Web Audio API')
+
+          }
+
+
+          //Sets up a webkitAudioContext
+          //Were we will do all our web audio work
+          musicContext = new webkitAudioContext();	
+           
+          //creates a master gain and master analyser
+          //that all of the different audio will run through
+          masterGain = musicContext.createGainNode();
+
+          masterGain.connect(musicContext.destination);
+
+
+          /*
+
+            AV SETUP
+
+          */
+
+
+          //Createss an AV object to add to the scene,
+          //So we can attach particles, meshes, etc,
+          //and have them rotate/scale together
+          AV = new THREE.Object3D();
+
+          //Adds object to the scene
+          scene.add(AV);
+
+
+          //Rainbow mesh material (No Lights Neccesary!)
+          var material = new THREE.MeshNormalMaterial({
+
+            //shading:THREE.SmoothShading,
+
+            //Double Sided, so we can move inside of the object
+            side:THREE.DoubleSide
+            
+          });
+
+          //Creating a new Icosahedron Geometry,
+          var geometry = new THREE.IcosahedronGeometry(  
+          
+            SCENESIZE/40,    //radius
+            3                 //detail
+
+          );
+
+          //Keeps a copy of the data to use in visualization
+          var data = geometry.clone();
+
+          //Creating a mesh from our geometry and material
+          var mesh = new THREE.Mesh(geometry, material)
+
+
+          //Assigns the mesh and data to our AV object
+          //Also adds them to the AV 'scene'
+          AV.mesh = mesh
+          AV.mesh.data = data
+          AV.add(mesh)
+
+          //Creates the audio 
+          AV.audio = new STREAM('lib/GalaxEye.mp3')
+
+
+
+          /*
+
+            VISUALIZATION:
+            AKA where the magic of data happens
+
+          */
+          AV.visualize = function(){
+
+            //Gets the frequency Data for all frequencies in the
+            //analyser bin count
+            var freqByteData = new Uint8Array(this.audio.analyser.frequencyBinCount)
+            this.audio.analyser.getByteFrequencyData(freqByteData)
+            
+            //A Basic 'Frequency Buldge' Which essentially
+            //Scales vertex position based on the frequency
+            for(var i=0;i<this.audio.analyser.frequencyBinCount;i++){
+              var freqData = freqByteData[i]
+              var binCount = this.audio.analyser.frequencyBinCount
+              
+              var vert = this.mesh.geometry.vertices[i]
+              var data = this.mesh.data.vertices[i]
+              
+              if(vert){
+                vert.x = data.x *(1+ freqData /100)
+                vert.y = data.y *(1+ freqData /100)
+                vert.z = data.z *(1+ freqData /100)
+              }
+
+            }
+
+            //Updates the geometry to reflect the changes 
+            //in the verticies
+            this.mesh.geometry.verticesNeedUpdate = true
+            
+          }
+
+          //Starts the audio streaming!
+          AV.audio.start()
+
+
+
+          /*
+            
+            RENDERER SETUP
+
+          */
+
+
+          //Renderer, set to black background
+          renderer = new THREE.WebGLRenderer({ 
+            
+            clearColor: 0x000000, 
+            clearAlpha: 1 
+          
+          });
+
+          //Give it the full size of the window
+          renderer.setSize( window.innerWidth, window.innerHeight );
+
+          //creates dom element to hold renderer/stats
+          container = document.createElement( 'div' );
+          document.body.appendChild( container );
+
+          //puts the renderer into the dom container
+          container.appendChild( renderer.domElement );
+
+
+          //Stats, put in the bottom right
+          stats = new Stats();
+          stats.domElement.style.position = 'absolute';
+          stats.domElement.style.right = '0px';
+          stats.domElement.style.bottom = '0px';
+          container.appendChild( stats.domElement );
+
+
+
+          //If the window is resized, the camera/ renderer will be as well
+          window.addEventListener( 'resize', onWindowResize, false );
+
+
+          
+          //Start Animation
+          animate();
+        }
+
+
+        function onWindowResize() {
+
+          windowHalfX = window.innerWidth / 2;
+          windowHalfY = window.innerHeight / 2;
+
+          camera.aspect = window.innerWidth / window.innerHeight;
+          camera.updateProjectionMatrix();
+
+          renderer.setSize( window.innerWidth, window.innerHeight );
+
+        }
+
+
+        //use for mouse movements
+        function onDocumentMouseMove(event) {
+
+          mouseX = ( event.clientX - windowHalfX ) * 10;
+          mouseY = ( event.clientY - windowHalfY ) * 10;
+
+        }
+
+
+        function animate() {
+
+          //Using requestAnimationFrame for smooth framerate
+          requestAnimationFrame( animate );
+          render();
+
+        }
+
+        function render(){
+
+          renderer.render(scene,camera)
+          controls.update();
+          stats.update( clock );
+
+          //Calls the visualize function every frame
+          //once the audio has been created
+          if(AV.audio.analyser){
+            AV.visualize();
+          }
+        }
+
+
+        /*
+
+          STREAM WEB AUDIO OBJECT
+
+          */
+
+
+
+        STREAM.prototype = {
+
+
+          //creates the HTML audio tag object
+          createAudio:function (){ 
+
+            var audio = new Audio();
+            audio.preload = "none";
+            audio.src = this.file;
+            audio.loop = true;
+            this.audio=audio;
+          
+          },
+
+
+          //Creates a webkit Audio Source,
+          //connecting it through an analyser 
+          //to the masterGain
+          createSource:function() {
+
+            if(this.audio){ 
+
+              this.source = musicContext.createMediaElementSource(this.audio);
+              
+              this.analyser= musicContext.createAnalyser();
+
+              this.source.connect(this.analyser)
+              this.analyser.connect(masterGain)
+           
+            }else{
+            
+            }
+
+          },
+          
+          start:function(){
+                  
+            //if the source hasn't been created yet,
+            //create it!
+            this.createAudio();	
+
+            var self = this	
+          
+            //doing tiny timeout or for some reason
+            // song won't play.. TODO: Investigate
+            setTimeout(function(){
+              if(!self.source){
+                  self.createSource();
+                  self.audio.play();
+                  
+              }else{
+               
+                  self.audio.play();
+              }
+            },10)
+
+          },
+
+
+          //Not using in this specific demo,
+          //but is useful!
+          stop:function(){		
+            this.audio.pause();
+            this.destroySource();	
+          },
+          
+          play:function(){
+            this.audio.play();
+          },
+          
+          //Destroys the Audio Source,
+          //Making sure to disconnect all the nodes
+          //Again, not using for this specific demo
+          //But still useful
+          destroySource:function(){
+
+            if(this.analyser){
+              this.analyser.disconnect(masterGain)
+            }
+
+            
+            if(this.source){
+              this.source.disconnect(this.analyser)
+            }	
+          
+            this.source = undefined
+            this.panner = undefined
+            this.analyser = undefined
+            this.audio = undefined
+          },
+            
+        }
+
+
+        function STREAM (file){
+          this.file=file
+        }
+                
+
+
+        letThereBeLight();	
+
+    </script>
+        
+         
+  </body>
+</html>
